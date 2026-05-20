@@ -1,4 +1,4 @@
-const nock = require('nock');
+const moxios = require('moxios');
 
 const Bitbucket = require('../models/Bitbucket');
 
@@ -7,23 +7,23 @@ const logger = {
   warn: () => {},
 };
 
-const API = 'https://api.bitbucket.org';
+const PERMISSIONS_URL = /^https:\/\/api\.bitbucket\.org\/2\.0\/workspaces\/foo\/permissions(\?.*)?$/;
 
 describe('Bitbucket', () => {
-  beforeAll(() => {
-    nock.disableNetConnect();
-  });
-  afterAll(() => {
-    nock.enableNetConnect();
+  beforeEach(() => {
+    moxios.install();
   });
   afterEach(() => {
-    nock.cleanAll();
+    moxios.uninstall();
   });
 
   describe('#getUser', () => {
     it('should return the authenticated user payload', () => {
       expect.assertions(1);
-      nock(API).get('/2.0/user').reply(200, { uuid: '{abc}', username: 'u' });
+      moxios.stubRequest('https://api.bitbucket.org/2.0/user', {
+        status: 200,
+        response: { uuid: '{abc}', username: 'u' },
+      });
       return new Bitbucket('u', 'p', logger).getUser().then((user) => {
         expect(user).toEqual({ uuid: '{abc}', username: 'u' });
       });
@@ -33,10 +33,10 @@ describe('Bitbucket', () => {
   describe('#getWorkspacePermission', () => {
     it('should return the permission string when the user is a member', () => {
       expect.assertions(1);
-      nock(API)
-        .get('/2.0/workspaces/foo/permissions')
-        .query(true)
-        .reply(200, { values: [{ permission: 'owner' }] });
+      moxios.stubRequest(PERMISSIONS_URL, {
+        status: 200,
+        response: { values: [{ permission: 'owner' }] },
+      });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .then((permission) => {
           expect(permission).toEqual('owner');
@@ -45,10 +45,10 @@ describe('Bitbucket', () => {
 
     it('should return null when the user is not a member', () => {
       expect.assertions(1);
-      nock(API)
-        .get('/2.0/workspaces/foo/permissions')
-        .query(true)
-        .reply(200, { values: [] });
+      moxios.stubRequest(PERMISSIONS_URL, {
+        status: 200,
+        response: { values: [] },
+      });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .then((permission) => {
           expect(permission).toBeNull();
@@ -57,10 +57,10 @@ describe('Bitbucket', () => {
 
     it('should return null when the workspace does not exist (404)', () => {
       expect.assertions(1);
-      nock(API)
-        .get('/2.0/workspaces/foo/permissions')
-        .query(true)
-        .reply(404, { type: 'error', error: { message: 'No workspace' } });
+      moxios.stubRequest(PERMISSIONS_URL, {
+        status: 404,
+        response: { type: 'error', error: { message: 'No workspace' } },
+      });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .then((permission) => {
           expect(permission).toBeNull();
@@ -69,10 +69,10 @@ describe('Bitbucket', () => {
 
     it('should return null when the user has no access to the workspace (403)', () => {
       expect.assertions(1);
-      nock(API)
-        .get('/2.0/workspaces/foo/permissions')
-        .query(true)
-        .reply(403, { type: 'error', error: { message: 'forbidden' } });
+      moxios.stubRequest(PERMISSIONS_URL, {
+        status: 403,
+        response: { type: 'error', error: { message: 'forbidden' } },
+      });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .then((permission) => {
           expect(permission).toBeNull();
@@ -81,10 +81,10 @@ describe('Bitbucket', () => {
 
     it('should propagate auth errors (401)', () => {
       expect.assertions(1);
-      nock(API)
-        .get('/2.0/workspaces/foo/permissions')
-        .query(true)
-        .reply(401, { type: 'error', error: { message: 'unauthorized' } });
+      moxios.stubRequest(PERMISSIONS_URL, {
+        status: 401,
+        response: { type: 'error', error: { message: 'unauthorized' } },
+      });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .catch((err) => {
           expect(err.response.status).toEqual(401);
