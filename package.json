@@ -12,7 +12,8 @@
   ],
   "scripts": {
     "lint": "eslint ./src --fix",
-    "test": "jest",
+    "test": "jest --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=src/__test__/e2e",
+    "test:e2e": "jest src/__test__/e2e",
     "prepare": "husky install"
   },
   "main": "src/index.js",
@@ -38,7 +39,7 @@
     "node": "*"
   },
   "dependencies": {
-    "axios": "^0.21.0",
+    "axios": "^1.16.1",
     "hash-wasm": "^4.9.0",
     "node-cache": "^5.1.0",
     "redis": "^3.0.2"
@@ -50,7 +51,7 @@
     "eslint-plugin-jest": "^26.8.2",
     "husky": "^8.0.0",
     "jest": "^28.1.3",
-    "moxios": "^0.4.0",
+    "nock": "^14.0.15",
     "redis-mock": "^0.56.3"
   }
 }

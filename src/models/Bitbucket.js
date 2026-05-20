@@ -11,7 +11,6 @@ function Bitbucket(username, password, logger) {
 }
 
 Bitbucket.prototype.getUser = function getUser() {
-  // currently not in use, maybe in the future it will be.
   const { username, password, apiUrl } = this;
   return axios({
     method: 'get',
@@ -20,38 +19,36 @@ Bitbucket.prototype.getUser = function getUser() {
   }).then((response) => response.data);
 };
 
-Bitbucket.prototype.getTeams = function getTeams(role) {
+Bitbucket.prototype.getWorkspacePermission = function getWorkspacePermission(workspace, uuid) {
   const { username, password, apiUrl } = this;
-  const teams = [];
-  const endpoint = `${apiUrl}/workspaces?role=${role}&pagelen=100`;
-  this.logger.debug(`[bitbucket] getting teams for ${username}, url: ${endpoint}, role: ${role}`);
+  const url = `${apiUrl}/workspaces/${encodeURIComponent(workspace)}/permissions`;
+  this.logger.debug(`[bitbucket] checking ${username} membership in ${workspace}`);
 
-  function callApi(url) {
-    return axios({
-      method: 'get',
-      url,
-      auth: { username, password },
-    }).then((response) => {
-      teams.push(...response.data.values.map((x) => x.slug));
-      if (response.data.next) return callApi(response.data.next);
-      return { role, teams };
-    });
-  }
-
-  return callApi(`${endpoint}`);
+  return axios({
+    method: 'get',
+    url,
+    params: { q: `user.uuid="${uuid}"` },
+    auth: { username, password },
+  }).then((response) => {
+    const [first] = response.data.values || [];
+    return first ? first.permission : null;
+  }).catch((err) => {
+    const status = err.response && err.response.status;
+    if (status === 403 || status === 404) return null;
+    throw err;
+  });
 };
 
-Bitbucket.prototype.getPrivileges = function getPrivileges() {
-  return Promise.all([
-    this.getTeams('member'),
-    this.getTeams('collaborator'),
-    this.getTeams('owner'),
-  ]).then((values) => {
-    const result = {};
-    values.forEach(({ role, teams }) => {
-      Object.assign(result, ...teams.map((t) => ({ [t]: role })));
+Bitbucket.prototype.getPrivileges = function getPrivileges(workspaces) {
+  return this.getUser().then((user) => Promise.all(
+    workspaces.map((slug) => this.getWorkspacePermission(slug, user.uuid)
+      .then((permission) => ({ slug, permission }))),
+  )).then((results) => {
+    const teams = {};
+    results.forEach(({ slug, permission }) => {
+      if (permission) teams[slug] = permission;
     });
-    return { teams: result };
+    return { teams };
   });
 };
 
