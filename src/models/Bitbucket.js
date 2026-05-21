@@ -21,21 +21,39 @@ Bitbucket.prototype.getUser = function getUser() {
 
 Bitbucket.prototype.getWorkspacePermission = function getWorkspacePermission(workspace, uuid) {
   const { username, password, apiUrl } = this;
-  const url = `${apiUrl}/workspaces/${encodeURIComponent(workspace)}/permissions`;
+  const auth = { username, password };
+  const base = `${apiUrl}/workspaces/${encodeURIComponent(workspace)}`;
   this.logger.debug(`[bitbucket] checking ${username} membership in ${workspace}`);
 
-  return axios({
-    method: 'get',
-    url,
-    params: { q: `user.uuid="${uuid}"` },
-    auth: { username, password },
-  }).then((response) => {
-    const [first] = response.data.values || [];
-    return first ? first.permission : null;
-  }).catch((err) => {
+  // /permissions only contains rows for users with an elevated role (owner /
+  // collaborator). Plain members are absent from /permissions but visible in
+  // /members, so we have to check both to mirror what the old /workspaces?role
+  // listing returned.
+  const ignoreMissing = (err) => {
     const status = err.response && err.response.status;
     if (status === 403 || status === 404) return null;
     throw err;
+  };
+
+  const memberCheck = axios({
+    method: 'get',
+    url: `${base}/members/${encodeURIComponent(uuid)}`,
+    auth,
+  }).then(() => true).catch(ignoreMissing);
+
+  const roleLookup = axios({
+    method: 'get',
+    url: `${base}/permissions`,
+    params: { q: `user.uuid="${uuid}"` },
+    auth,
+  }).then((response) => {
+    const [first] = response.data.values || [];
+    return first ? first.permission : null;
+  }).catch(ignoreMissing);
+
+  return Promise.all([memberCheck, roleLookup]).then(([isMember, role]) => {
+    if (!isMember) return null;
+    return role || 'member';
   });
 };
 

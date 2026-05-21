@@ -7,6 +7,7 @@ const logger = {
   warn: () => {},
 };
 
+const MEMBERS_URL = /^https:\/\/api\.bitbucket\.org\/2\.0\/workspaces\/foo\/members\/.*$/;
 const PERMISSIONS_URL = /^https:\/\/api\.bitbucket\.org\/2\.0\/workspaces\/foo\/permissions(\?.*)?$/;
 
 describe('Bitbucket', () => {
@@ -31,8 +32,9 @@ describe('Bitbucket', () => {
   });
 
   describe('#getWorkspacePermission', () => {
-    it('should return the permission string when the user is a member', () => {
+    it('returns the elevated role when /permissions has a row for the user', () => {
       expect.assertions(1);
+      moxios.stubRequest(MEMBERS_URL, { status: 200, response: { type: 'workspace_membership' } });
       moxios.stubRequest(PERMISSIONS_URL, {
         status: 200,
         response: { values: [{ permission: 'owner' }] },
@@ -43,48 +45,50 @@ describe('Bitbucket', () => {
         });
     });
 
-    it('should return null when the user is not a member', () => {
+    it('returns "member" when the user is in /members but absent from /permissions', () => {
       expect.assertions(1);
-      moxios.stubRequest(PERMISSIONS_URL, {
-        status: 200,
-        response: { values: [] },
-      });
+      moxios.stubRequest(MEMBERS_URL, { status: 200, response: { type: 'workspace_membership' } });
+      moxios.stubRequest(PERMISSIONS_URL, { status: 200, response: { values: [] } });
+      return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
+        .then((permission) => {
+          expect(permission).toEqual('member');
+        });
+    });
+
+    it('returns "member" when /permissions is forbidden for the caller (403)', () => {
+      expect.assertions(1);
+      moxios.stubRequest(MEMBERS_URL, { status: 200, response: { type: 'workspace_membership' } });
+      moxios.stubRequest(PERMISSIONS_URL, { status: 403, response: { error: 'forbidden' } });
+      return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
+        .then((permission) => {
+          expect(permission).toEqual('member');
+        });
+    });
+
+    it('returns null when the user is not in /members (404)', () => {
+      expect.assertions(1);
+      moxios.stubRequest(MEMBERS_URL, { status: 404, response: { error: 'no member' } });
+      moxios.stubRequest(PERMISSIONS_URL, { status: 200, response: { values: [] } });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .then((permission) => {
           expect(permission).toBeNull();
         });
     });
 
-    it('should return null when the workspace does not exist (404)', () => {
+    it('returns null when both endpoints deny access (workspace user cannot see)', () => {
       expect.assertions(1);
-      moxios.stubRequest(PERMISSIONS_URL, {
-        status: 404,
-        response: { type: 'error', error: { message: 'No workspace' } },
-      });
+      moxios.stubRequest(MEMBERS_URL, { status: 403, response: { error: 'forbidden' } });
+      moxios.stubRequest(PERMISSIONS_URL, { status: 403, response: { error: 'forbidden' } });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .then((permission) => {
           expect(permission).toBeNull();
         });
     });
 
-    it('should return null when the user has no access to the workspace (403)', () => {
+    it('propagates auth errors (401)', () => {
       expect.assertions(1);
-      moxios.stubRequest(PERMISSIONS_URL, {
-        status: 403,
-        response: { type: 'error', error: { message: 'forbidden' } },
-      });
-      return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
-        .then((permission) => {
-          expect(permission).toBeNull();
-        });
-    });
-
-    it('should propagate auth errors (401)', () => {
-      expect.assertions(1);
-      moxios.stubRequest(PERMISSIONS_URL, {
-        status: 401,
-        response: { type: 'error', error: { message: 'unauthorized' } },
-      });
+      moxios.stubRequest(MEMBERS_URL, { status: 401, response: { error: 'unauthorized' } });
+      moxios.stubRequest(PERMISSIONS_URL, { status: 401, response: { error: 'unauthorized' } });
       return new Bitbucket('u', 'p', logger).getWorkspacePermission('foo', '{abc}')
         .catch((err) => {
           expect(err.response.status).toEqual(401);
